@@ -1,76 +1,79 @@
 import praw
 import re
-import gdata.spreadsheet.service
+import os
+import string
+import markdown
 
 r = praw.Reddit(user_agent='my_cool_application')
 submissions = r.get_subreddit('dailyprogrammer').get_new(limit=None)
 
-config = {}
-execfile('settings.conf', config)
-
-email = config['google_account']
-password = config['google_password']
-
-spreadsheet_key = config['spreadsheet_key']
-worksheet_id = config['worksheet_id']
-
-ss_client = gdata.spreadsheet.service.SpreadsheetsService()
-ss_client.email = email
-ss_client.password = password
-ss_client.source = 'Daily Programmer to Spreadsheet'
-ss_client.ProgrammaticLogin()
-
-def get_title_data(full_title):
+def get_title_data(title):
   title_data = {}
 
   # Get Date
-  date_match = re.match(r"\[\d+/\d+/\d+\]", full_title)
-  if not date_match:
-    return False
-
-  title_data['date'] = date_match.group(0)[1:-1]
-  trunc_title = full_title[len(title_data['date']) + 3:]
+  date_match = re.match(r"\[\d+/\d+/\d+\]", title)
+  if date_match:
+    title_data['date'] = date_match.group(0)[1:-1]
+    title = title[len(title_data['date']) + 3:]
 
   # Get Challenge number
-  challenge_match = re.match(r"\bchallenge\b #\d+", trunc_title, re.IGNORECASE)
+  challenge_match = re.match(r"\bchallenge\b #\d+", title, re.IGNORECASE)
   if not challenge_match:
     return False
 
   title_data['challenge'] = challenge_match.group(0)
-  trunc_title = trunc_title[len(title_data['challenge']) + 1:]
+  title = title[len(title_data['challenge']) + 1:]
 
-  print trunc_title
-
-  difficulty_match = re.match(r"\[\w+\]", trunc_title)
+  # Get Difficulty
+  difficulty_match = re.match(r"\[(easy|intermediate|hard|difficult)\]", title, re.IGNORECASE)
   if difficulty_match:
     title_data['difficulty'] = difficulty_match.group(0)[1:-1]
   else:
     title_data['difficulty'] = "N/A"
-  trunc_title = trunc_title[len(title_data['difficulty']) + 3:]
+  title = title[len(title_data['difficulty']) + 2:]
 
-  title_data['title'] = trunc_title
+  # Get Challenge Title
+  title_data['title'] = title.strip()
 
   return title_data
 
-def insert_row(data):
-  entry = ss_client.InsertRow(data, spreadsheet_key, worksheet_id)
-  if isinstance(entry, gdata.spreadsheet.SpreadsheetsList):
-    print "Insert row succeeded."
-  else:
-    print "Insert row failed."
+
+main_dir = "C:\Users\Luke\Desktop\DailyProgrammer"
+fdirs = [main_dir,
+        os.path.join(main_dir, 'Easy'),
+        os.path.join(main_dir, 'Intermediate'),
+        os.path.join(main_dir, 'Difficult'),
+        os.path.join(main_dir, 'Other')]
+for fdir in fdirs:
+  if not os.path.exists(fdir):
+    os.makedirs(fdir)
 
 for submission in submissions:
   data = {}
-  full_title = submission.title
-
-  title_data = get_title_data(full_title)
-
+  title = submission.title
+  
+  title_data = get_title_data(title)
   if not title_data:
     continue
 
-  data['challenge'] = title_data['challenge']
-  data['date'] = title_data['date']
-  data['title'] = title_data['title']
-  data['difficulty'] = title_data['difficulty']
-  data['content'] = submission.selftext
-  insert_row(data)
+  for key, value in title_data.iteritems():
+    data[key] = value
+
+  if data['title'] == '':
+    data['title'] = data['challenge']
+  fname = re.sub('[\\/:*?"<>|]', '-', data['title']) + '.html'
+  fdir = main_dir
+  if data['difficulty'] == 'Easy':
+    fdir = os.path.join(main_dir, 'Easy')
+  elif data['difficulty'] == 'Intermediate':
+    fdir = os.path.join(main_dir, 'Intermediate')
+  elif data['difficulty'] == 'Difficult' or data['difficulty'] == 'Hard':
+    fdir = os.path.join(main_dir, 'Difficult')
+  else:
+    fdir = os.path.join(main_dir, 'Other')
+
+  f = open(os.path.join(fdir, fname), 'w')
+  f.write(markdown.markdown(submission.selftext).encode("UTF-8"))
+  f.close()
+
+# \/:*?"<>|
